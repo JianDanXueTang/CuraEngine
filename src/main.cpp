@@ -1,11 +1,10 @@
-/** Copyright (C) 2013 David Braam - Released under terms of the AGPLv3 License */
+/** Copyright (C) 2013 Ultimaker - Released under terms of the AGPLv3 License */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/time.h>
 #include <signal.h>
 #if defined(__linux__) || (defined(__APPLE__) && defined(__MACH__))
-#include <execinfo.h>
 #include <sys/resource.h>
 #endif
 #include <stddef.h>
@@ -19,6 +18,10 @@
 #include "settings/SettingRegistry.h"
 
 #include "settings/SettingsToGV.h"
+
+#ifdef _OPENMP
+    #include <omp.h> // omp_get_num_threads
+#endif // _OPENMP
 
 namespace cura
 {
@@ -34,9 +37,15 @@ void print_usage()
     logAlways("  --connect <host>[:<port>]\n\tConnect to <host> via a command socket, \n\tinstead of passing information via the command line\n");
     logAlways("  -j<settings.def.json>\n\tLoad settings.json file to register all settings and their defaults\n");
     logAlways("  -v\n\tIncrease the verbose level (show log messages).\n");
+#ifdef _OPENMP
+    logAlways("  -m<thread_count>\n\tSet the desired number of threads. Supports only a single digit.\n");
+#endif // _OPENMP
     logAlways("\n");
     logAlways("CuraEngine slice [-v] [-p] [-j <settings.json>] [-s <settingkey>=<value>] [-g] [-e<extruder_nr>] [-o <output.gcode>] [-l <model.stl>] [--next]\n");
     logAlways("  -v\n\tIncrease the verbose level (show log messages).\n");
+#ifdef _OPENMP
+    logAlways("  -m<thread_count>\n\tSet the desired number of threads.\n");
+#endif // _OPENMP
     logAlways("  -p\n\tLog progress information.\n");
     logAlways("  -j\n\tLoad settings.def.json file to register all settings and their defaults.\n");
     logAlways("  -s <setting>=<value>\n\tSet a setting to a value for the last supplied object, \n\textruder train, or general settings.\n");
@@ -82,6 +91,10 @@ void connect(int argc, char **argv)
         port = std::stoi(ip_port.substr(ip_port.find(':') + 1).data());
     }
 
+#ifdef _OPENMP
+    int n_threads;
+#endif // _OPENMP
+
     for(int argn = 3; argn < argc; argn++)
     {
         char* str = argv[argn];
@@ -94,6 +107,15 @@ void connect(int argc, char **argv)
                 case 'v':
                     cura::increaseVerboseLevel();
                     break;
+#ifdef _OPENMP
+                case 'm':
+                    str++;
+                    n_threads = std::strtol(str, &str, 10);
+                    str--;
+                    n_threads = std::max(1, n_threads);
+                    omp_set_num_threads(n_threads);
+                    break;
+#endif // _OPENMP
                 case 'j':
                     argn++;
                     if (SettingRegistry::getInstance()->loadJSONsettings(argv[argn], FffProcessor::getInstance()))
@@ -125,6 +147,10 @@ void slice(int argc, char **argv)
     MeshGroup* meshgroup = new MeshGroup(FffProcessor::getInstance());
     
     int extruder_train_nr = 0;
+
+#ifdef _OPENMP
+    int n_threads;
+#endif // _OPENMP
 
     SettingsBase* last_extruder_train = nullptr;
     // extruder defaults cannot be loaded yet cause no json has been parsed
@@ -175,6 +201,15 @@ void slice(int argc, char **argv)
                     case 'v':
                         cura::increaseVerboseLevel();
                         break;
+#ifdef _OPENMP
+                    case 'm':
+                        str++;
+                        n_threads = std::strtol(str, &str, 10);
+                        str--;
+                        n_threads = std::max(1, n_threads);
+                        omp_set_num_threads(n_threads);
+                        break;
+#endif // _OPENMP
                     case 'p':
                         cura::enableProgressLogging();
                         break;
@@ -188,7 +223,8 @@ void slice(int argc, char **argv)
                         break;
                     case 'e':
                         str++;
-                        extruder_train_nr = int(*str - '0'); // TODO: parse int instead (now "-e10"="-e:" , "-e11"="-e;" , "-e12"="-e<" .. etc) 
+                        extruder_train_nr = std::strtol(str, &str, 10);
+                        str--;
                         last_settings_object = meshgroup->createExtruderTrain(extruder_train_nr);
                         last_extruder_train = last_settings_object;
                         break;
@@ -307,7 +343,7 @@ int main(int argc, char **argv)
     std::cerr << std::boolalpha;
     logAlways("\n");
     logAlways("Cura_SteamEngine version %s\n", VERSION);
-    logAlways("Copyright (C) 2014 David Braam\n");
+    logAlways("Copyright (C) 2017 Ultimaker\n");
     logAlways("\n");
     logAlways("This program is free software: you can redistribute it and/or modify\n");
     logAlways("it under the terms of the GNU Affero General Public License as published by\n");
@@ -328,7 +364,19 @@ int main(int argc, char **argv)
         print_usage();
         exit(1);
     }
-    
+
+#pragma omp parallel
+    {
+#pragma omp master
+        {
+#ifdef _OPENMP
+            log("OpenMP multithreading enabled, likely number of threads to be used: %u\n", omp_get_num_threads());
+#else
+            log("OpenMP multithreading disabled\n");
+#endif
+        }
+    }
+
     if (stringcasecompare(argv[1], "connect") == 0)
     {
         connect(argc, argv);

@@ -51,7 +51,7 @@ private:
     const double scale;
 
 public:
-    SVG(const char* filename, AABB aabb, Point canvas_size = Point(1024 * 4, 1024 * 4))
+    SVG(const char* filename, AABB aabb, Point canvas_size = Point(1024, 1024))
     : aabb(aabb)
     , aabb_size(aabb.max - aabb.min)
     , border(200,100)
@@ -93,9 +93,8 @@ public:
         {
             for(unsigned int j=0;j<parts.size();j++)
             {
-                Polygon poly = parts[j];
                 fprintf(out, "<polygon points=\"");
-                for(Point& p : poly)
+                for (Point& p : parts[j])
                 {
                     Point fp = transform(p);
                     fprintf(out, "%lli,%lli ", fp.X, fp.Y);
@@ -130,9 +129,9 @@ public:
         }
     }
 
-    void writePoints(PolygonRef poly, bool write_coords=false, int size = 5, Color color = Color::BLACK)
+    void writePoints(ConstPolygonRef poly, bool write_coords=false, int size = 5, Color color = Color::BLACK)
     {
-        for (Point& p : poly)
+        for (const Point& p : poly)
         {
             writePoint(p, write_coords, size, color);
         }
@@ -202,24 +201,28 @@ public:
     {
         fprintf(out, txt, args...);
     }
-    void writeText(Point p, std::string txt)
+    void writeText(Point p, std::string txt, Color color = Color::BLACK, coord_t font_size = 10)
     {
         Point pf = transform(p);
-        fprintf(out, "<text x=\"%lli\" y=\"%lli\" style=\"font-size: 10px;\" fill=\"black\">%s</text>\n",pf.X, pf.Y, txt.c_str());
+        fprintf(out, "<text x=\"%lli\" y=\"%lli\" style=\"font-size: %llipx;\" fill=\"%s\">%s</text>\n",pf.X, pf.Y, font_size, toString(color).c_str(), txt.c_str());
     }
-    void writePolygons(const Polygons& polys, Color color = Color::BLACK)
+    void writePolygons(const Polygons& polys, Color color = Color::BLACK, int stroke_width = 1)
     {
-        for (const PolygonRef poly : const_cast<Polygons&>(polys))
+        for (ConstPolygonRef poly : polys)
         {
-            writePolygon(poly, color);
+            writePolygon(poly, color, stroke_width);
         }
     }
-    void writePolygon(const PolygonRef poly, Color color = Color::BLACK)
+    void writePolygon(ConstPolygonRef poly, Color color = Color::BLACK, int stroke_width = 1)
     {
+        if (poly.size() == 0)
+        {
+            return;
+        }
         Point p0 = poly.back();
         for (Point p1 : poly)
         {
-            writeLine(p0, p1, color);
+            writeLine(p0, p1, color, stroke_width);
             p0 = p1;
         }
     }

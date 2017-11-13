@@ -193,6 +193,7 @@ class Setting:
         if self._type == "polygons":
             return [self._default]
         print("Unknown setting type:", self._type)
+        return []
 
     ## Return a random value for this setting. The returned value will be a valid value according to the settings json file.
     def getRandomValue(self):
@@ -235,11 +236,14 @@ class Setting:
             tree = ast.parse(code, "eval")
             compiled = compile(code, self._key, "eval")
         except (SyntaxError, TypeError) as e:
-            print("Parse error in function (" + code + ") for setting", self._key + ":", str(e))
+            print("Parse error in function (" + str(code) + ") for setting", self._key + ":", str(e))
+            return None
         except IllegalMethodError as e:
             print("Use of illegal method", str(e), "in function (" + code + ") for setting", self._key)
+            return None
         except Exception as e:
             print("Exception in function (" + code + ") for setting", self._key + ":", str(e))
+            return None
 
         return eval(compiled, globals(), locals)
 
@@ -372,6 +376,7 @@ class EngineTest:
             if "children" in setting:
                 self._addLocals(setting["children"]) #Recursively go down the tree.
 
+
 def main(engine, model_path):
     filenames = sorted(os.listdir(model_path), key=lambda filename: os.stat(os.path.join(model_path, filename)).st_size)
     filenames = list(filter(lambda filename: filename.lower().endswith(".stl"), filenames))
@@ -386,6 +391,8 @@ def main(engine, model_path):
             sys.exit(1)
         else:
             print("Slicing took: %f" % (time.time() - t))
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="CuraEngine testing script")
     parser.add_argument("--simple", action="store_true", help="Only run the single test, exit")

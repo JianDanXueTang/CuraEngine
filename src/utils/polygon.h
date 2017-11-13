@@ -1,3 +1,6 @@
+//Copyright (c) 2017 Ultimaker B.V.
+//CuraEngine is released under the terms of the AGPLv3 or higher.
+
 #ifndef UTILS_POLYGON_H
 #define UTILS_POLYGON_H
 
@@ -27,6 +30,8 @@ namespace cura {
 
 class PartsView;
 class Polygons;
+class Polygon;
+class PolygonRef;
 
 class ListPolyIt;
 
@@ -36,31 +41,63 @@ typedef std::vector<ListPolygon> ListPolygons; //!< Polygons represented by a ve
 const static int clipper_init = (0);
 #define NO_INDEX (std::numeric_limits<unsigned int>::max())
 
-class PolygonRef
+class ConstPolygonPointer;
+
+/*!
+ * Outer polygons should be counter-clockwise,
+ * inner hole polygons should be clockwise.
+ * (When negative X is to the left and negative Y is downward.)
+ */
+class ConstPolygonRef
 {
+    friend class Polygons;
+    friend class Polygon;
+    friend class PolygonRef;
+    friend class ConstPolygonPointer;
+protected:
     ClipperLib::Path* path;
-    PolygonRef()
-    : path(nullptr)
-    {}
 public:
-    PolygonRef(ClipperLib::Path& polygon)
-    : path(&polygon)
+    ConstPolygonRef(const ClipperLib::Path& polygon)
+    : path(const_cast<ClipperLib::Path*>(&polygon))
     {}
-    
+
+    virtual ~ConstPolygonRef()
+    {
+    }
+
+    bool operator==(ConstPolygonRef& other) const =delete; // polygon comparison is expensive and probably not what you want when you use the equality operator
+
+    ConstPolygonRef& operator=(const ConstPolygonRef& other) =delete; // Cannot assign to a const object
+
     unsigned int size() const
     {
         return path->size();
     }
 
-    Point& operator[] (unsigned int index) const
+    const Point& operator[] (unsigned int index) const
     {
-        POLY_ASSERT(index < size() && index <= std::numeric_limits<int>::max());
+        POLY_ASSERT(index < size());
         return (*path)[index];
     }
 
-    void* data()
+    const ClipperLib::Path& operator*() const
     {
-        return path->data();
+        return *path;
+    }
+
+    ClipperLib::Path::const_iterator begin() const
+    {
+        return path->begin();
+    }
+
+    ClipperLib::Path::const_iterator end() const
+    {
+        return path->end();
+    }
+
+    ClipperLib::Path::const_reference back() const
+    {
+        return path->back();
     }
 
     const void* data() const
@@ -68,47 +105,15 @@ public:
         return path->data();
     }
 
-    void add(const Point p)
-    {
-        path->push_back(p);
-    }
-
-    PolygonRef& operator=(const PolygonRef& other) { path = other.path; return *this; }
-
-    bool operator==(const PolygonRef& other) const =delete;
-
-    ClipperLib::Path& operator*() { return *path; }
-    
-    template <typename... Args>
-    void emplace_back(Args&&... args)
-    {
-        path->emplace_back(args...);
-    }
-
-    void remove(unsigned int index)
-    {
-        POLY_ASSERT(index < size() && index <= std::numeric_limits<int>::max());
-        path->erase(path->begin() + index);
-    }
-
-    void clear()
-    {
-        path->clear();
-    }
 
     /*!
      * On Y-axis positive upward displays, Orientation will return true if the polygon's orientation is counter-clockwise.
-     * 
+     *
      * from http://www.angusj.com/delphi/clipper/documentation/Docs/Units/ClipperLib/Functions/Orientation.htm
      */
     bool orientation() const
     {
         return ClipperLib::Orientation(*path);
-    }
-
-    void reverse()
-    {
-        ClipperLib::ReversePath(*path);
     }
 
     Polygons offset(int distance, ClipperLib::JoinType joinType = ClipperLib::jtMiter, double miter_limit = 1.2) const;
@@ -125,7 +130,7 @@ public:
         }
         return length;
     }
-    
+
     bool shorterThan(int64_t check_length) const;
 
     Point min() const
@@ -138,7 +143,7 @@ public:
         }
         return ret;
     }
-    
+
     Point max() const
     {
         Point ret = Point(POINT_MIN, POINT_MIN);
@@ -153,19 +158,6 @@ public:
     double area() const
     {
         return ClipperLib::Area(*path);
-    }
-    
-    /*!
-     * Translate the whole polygon in some direction.
-     * 
-     * \param translation The direction in which to move the polygon
-     */
-    void translate(Point translation)
-    {
-        for (Point& p : *this)
-        {
-            p += translation;
-        }
     }
 
     Point centerOfMass() const
@@ -183,14 +175,14 @@ public:
         }
 
         double area = Area(*path);
-        
+
         x = x / 6 / area;
         y = y / 6 / area;
 
         return Point(x, y);
     }
 
-    Point closestPointTo(Point p)
+    Point closestPointTo(Point p) const
     {
         Point ret = p;
         float bestDist = FLT_MAX;
@@ -205,7 +197,7 @@ public:
         }
         return ret;
     }
-    
+
     /*!
      * Check if we are inside the polygon. We do this by tracing from the point towards the positive X direction,
      * every line we cross increments the crossings counter. If we have an even number of crossings then we are not inside the polygon.
@@ -241,7 +233,7 @@ public:
         }
         return res == 1;
     }
-    
+
     /*!
      * Smooth out small perpendicular segments and store the result in \p result.
      * Smoothing is performed by removing the inner most vertex of a line segment smaller than \p remove_length
@@ -253,7 +245,7 @@ public:
      * \param remove_length The length of the largest segment removed
      * \param result (output) The result polygon, assumed to be empty
      */
-    void smooth(int remove_length, PolygonRef result);
+    void smooth(int remove_length, PolygonRef result) const;
 
     /*!
      * Smooth out sharp inner corners, by taking a shortcut which bypasses the corner
@@ -271,51 +263,18 @@ public:
      * \param remove_length The length of the largest segment removed
      * \param result (output) The result polygon, assumed to be empty
      */
-    void smooth2(int remove_length, PolygonRef result);
+    void smooth2(int remove_length, PolygonRef result) const;
 
-    /*! 
-     * Removes consecutive line segments with same orientation and changes this polygon.
-     * 
-     * Removes verts which are connected to line segments which are both too small.
-     * Removes verts which detour from a direct line from the previous and next vert by a too small amount.
-     * 
-     * \param smallest_line_segment_squared maximal squared length of removed line segments
-     * \param allowed_error_distance_squared The square of the distance of the middle point to the line segment of the consecutive and previous point for which the middle point is removed
+    /*!
+     * Compute the morphological intersection between this polygon and another.
+     *
+     * Note that the result may consist of multiple polygons, if you have bad
+     * luck.
+     *
+     * \param other The polygon with which to intersect this polygon.
      */
-    void simplify(int smallest_line_segment_squared = 100, int allowed_error_distance_squared = 25);
+    Polygons intersection(const ConstPolygonRef& other) const;
 
-    void pop_back()
-    { 
-        path->pop_back();
-    }
-    
-    ClipperLib::Path::reference back() const
-    {
-        return path->back();
-    }
-    
-    ClipperLib::Path::iterator begin()
-    {
-        return path->begin();
-    }
-
-    ClipperLib::Path::iterator end()
-    {
-        return path->end();
-    }
-
-    ClipperLib::Path::const_iterator begin() const
-    {
-        return path->begin();
-    }
-
-    ClipperLib::Path::const_iterator end() const
-    {
-        return path->end();
-    }
-
-    friend class Polygons;
-    friend class Polygon;
 
 private:
     /*!
@@ -323,7 +282,6 @@ private:
      * 
      * Auxiliary function for \ref smooth_outward
      * 
-     * \param poly The polygon in which to find the corner
      * \param p0 The point before the corner
      * \param p1 The corner
      * \param p2 The point after the corner
@@ -336,7 +294,7 @@ private:
      * \param shortcut_length The desired length ofthe shortcutting line
      * \param cos_angle The cosine on the angle in L 012
      */
-    static void smooth_corner_simple(ListPolygon& poly, const Point p0, const Point p1, const Point p2, const ListPolyIt p0_it, const ListPolyIt p1_it, const ListPolyIt p2_it, const Point v10, const Point v12, const Point v02, const int64_t shortcut_length, float cos_angle);
+    static void smooth_corner_simple(const Point p0, const Point p1, const Point p2, const ListPolyIt p0_it, const ListPolyIt p1_it, const ListPolyIt p2_it, const Point v10, const Point v12, const Point v02, const int64_t shortcut_length, float cos_angle);
 
     /*!
      * Smooth out a complex corner where the shortcut bypasses more than two line segments
@@ -346,15 +304,13 @@ private:
      * \warning This function might try to remove the whole polygon
      * Error code -1 means the whole polygon should be removed (which means it is a hole polygon)
      * 
-     * 
-     * \param poly The polygon in which to find the corner
      * \param p1 The corner point
      * \param[in,out] p0_it Iterator to the last point checked before \p p1 to consider cutting off
      * \param[in,out] p2_it Iterator to the last point checked after \p p1 to consider cutting off
      * \param shortcut_length The desired length ofthe shortcutting line
      * \return Whether this whole polygon whould be removed by the smoothing
      */
-    static bool smooth_corner_complex(ListPolygon& poly, const Point p1, ListPolyIt& p0_it, ListPolyIt& p2_it, const int64_t shortcut_length);
+    static bool smooth_corner_complex(const Point p1, ListPolyIt& p0_it, ListPolyIt& p2_it, const int64_t shortcut_length);
 
     /*!
      * Try to take a step away from the corner point in order to take a bigger shortcut.
@@ -375,6 +331,188 @@ private:
     static void smooth_outward_step(const Point p1, const int64_t shortcut_length2, ListPolyIt& p0_it, ListPolyIt& p2_it, bool& forward_is_blocked, bool& backward_is_blocked, bool& forward_is_too_far, bool& backward_is_too_far);
 };
 
+
+class PolygonPointer;
+
+class PolygonRef : public ConstPolygonRef
+{
+    friend class PolygonPointer;
+public:
+    PolygonRef(ClipperLib::Path& polygon)
+    : ConstPolygonRef(polygon)
+    {}
+
+    virtual ~PolygonRef()
+    {
+    }
+
+    PolygonRef& operator=(const ConstPolygonRef& other) =delete; // polygon assignment is expensive and probably not what you want when you use the assignment operator
+//     {
+//         *path = *other.path;
+//         return *this;
+//     }
+
+    Point& operator[] (unsigned int index)
+    {
+        POLY_ASSERT(index < size());
+        return (*path)[index];
+    }
+
+    ClipperLib::Path::iterator begin()
+    {
+        return path->begin();
+    }
+
+    ClipperLib::Path::iterator end()
+    {
+        return path->end();
+    }
+
+    ClipperLib::Path::reference back()
+    {
+        return path->back();
+    }
+
+    void* data()
+    {
+        return path->data();
+    }
+
+    void add(const Point p)
+    {
+        path->push_back(p);
+    }
+
+    PolygonRef& operator=(ConstPolygonRef& other) { path = other.path; return *this; }
+
+    ClipperLib::Path& operator*()
+    {
+        return *path;
+    }
+
+    template <typename... Args>
+    void emplace_back(Args&&... args)
+    {
+        path->emplace_back(args...);
+    }
+
+    void remove(unsigned int index)
+    {
+        POLY_ASSERT(index < size() && index <= std::numeric_limits<int>::max());
+        path->erase(path->begin() + index);
+    }
+
+    void clear()
+    {
+        path->clear();
+    }
+
+    void reverse()
+    {
+        ClipperLib::ReversePath(*path);
+    }
+
+    /*!
+     * Translate the whole polygon in some direction.
+     * 
+     * \param translation The direction in which to move the polygon
+     */
+    void translate(Point translation)
+    {
+        for (Point& p : *this)
+        {
+            p += translation;
+        }
+    }
+
+    /*! 
+     * Removes consecutive line segments with same orientation and changes this polygon.
+     * 
+     * Removes verts which are connected to line segments which are both too small.
+     * Removes verts which detour from a direct line from the previous and next vert by a too small amount.
+     * 
+     * \param smallest_line_segment_squared maximal squared length of removed line segments
+     * \param allowed_error_distance_squared The square of the distance of the middle point to the line segment of the consecutive and previous point for which the middle point is removed
+     */
+    void simplify(int smallest_line_segment_squared = 100, int allowed_error_distance_squared = 25);
+
+    void pop_back()
+    { 
+        path->pop_back();
+    }
+
+    /*!
+     * Apply a matrix to each vertex in this polygon
+     */
+    void applyMatrix(const PointMatrix& matrix);
+    void applyMatrix(const Point3Matrix& matrix);
+};
+
+class ConstPolygonPointer
+{
+protected:
+    const ClipperLib::Path* path;
+public:
+    ConstPolygonPointer()
+    : path(nullptr)
+    {}
+    ConstPolygonPointer(const ConstPolygonRef* ref)
+    : path(ref->path)
+    {}
+    ConstPolygonPointer(const ConstPolygonRef& ref)
+    : path(ref.path)
+    {}
+
+    ConstPolygonRef operator*() const
+    {
+        assert(path);
+        return ConstPolygonRef(*path);
+    }
+    const ClipperLib::Path* operator->() const
+    {
+        assert(path);
+        return path;
+    }
+
+    operator bool() const
+    {
+        return path;
+    }
+};
+
+class PolygonPointer
+{
+protected:
+    ClipperLib::Path* path;
+public:
+    PolygonPointer()
+    : path(nullptr)
+    {}
+    PolygonPointer(PolygonRef* ref)
+    : path(ref->path)
+    {}
+
+    PolygonPointer(PolygonRef& ref)
+    : path(ref.path)
+    {}
+
+    PolygonRef operator*()
+    {
+        assert(path);
+        return PolygonRef(*path);
+    }
+    ClipperLib::Path* operator->()
+    {
+        assert(path);
+        return path;
+    }
+
+    operator bool() const
+    {
+        return path;
+    }
+};
+
 class Polygon : public PolygonRef
 {
     ClipperLib::Path poly;
@@ -384,10 +522,26 @@ public:
     {
     }
 
-    Polygon(const PolygonRef& other)
+    Polygon(ConstPolygonRef& other)
     : PolygonRef(poly)
+    , poly(*other.path)
     {
-        poly = *other.path;
+    }
+
+    Polygon(Polygon&& moved)
+    : PolygonRef(poly)
+    , poly(std::move(moved.poly))
+    {
+    }
+
+    virtual ~Polygon()
+    {
+    }
+
+    Polygon& operator=(const ConstPolygonRef& other)
+    {
+        path = other.path;
+        return *this;
     }
 };
 
@@ -397,6 +551,7 @@ class Polygons
 {
     friend class Polygon;
     friend class PolygonRef;
+    friend class ConstPolygonRef;
 protected:
     ClipperLib::Paths paths;
 public:
@@ -405,16 +560,24 @@ public:
         return paths.size();
     }
 
+    /*!
+     * Convenience function to check if the polygon has no points.
+     *
+     * \return `true` if the polygon has no points, or `false` if it does.
+     */
+    bool empty() const;
+
     unsigned int pointCount() const; //!< Return the amount of points in all polygons
 
     PolygonRef operator[] (unsigned int index)
     {
         POLY_ASSERT(index < size() && index <= std::numeric_limits<int>::max());
-        return PolygonRef(paths[index]);
+        return paths[index];
     }
-    const PolygonRef operator[] (unsigned int index) const
+    ConstPolygonRef operator[] (unsigned int index) const
     {
-        return const_cast<Polygons*>(this)->operator[](index);
+        POLY_ASSERT(index < size() && index <= std::numeric_limits<int>::max());
+        return paths[index];
     }
     ClipperLib::Paths::iterator begin()
     {
@@ -457,7 +620,11 @@ public:
     {
         paths.clear();
     }
-    void add(const PolygonRef& poly)
+    void add(ConstPolygonRef& poly)
+    {
+        paths.push_back(*poly.path);
+    }
+    void add(const ConstPolygonRef& poly)
     {
         paths.push_back(*poly.path);
     }
@@ -493,6 +660,10 @@ public:
     {
         return PolygonRef(paths.back());
     }
+    ConstPolygonRef back() const
+    {
+        return ConstPolygonRef(paths.back());
+    }
 
     Polygons() {}
 
@@ -500,6 +671,12 @@ public:
     Polygons& operator=(const Polygons& other) { paths = other.paths; return *this; }
 
     bool operator==(const Polygons& other) const =delete;
+
+    /*!
+     * Convert ClipperLib::PolyTree to a Polygons object,
+     * which uses ClipperLib::Paths instead of ClipperLib::PolyTree
+     */
+    static Polygons toPolygons(ClipperLib::PolyTree& poly_tree);
 
     Polygons difference(const Polygons& other) const
     {
@@ -535,6 +712,12 @@ public:
         clipper.Execute(ClipperLib::ctIntersection, ret.paths);
         return ret;
     }
+
+    /*!
+     * Intersect polylines with this area Polygons object.
+     */
+    Polygons intersectionPolyLines(const Polygons& polylines) const;
+
     /*!
      * Clips input line segments by this Polygons.
      * \param other Input line segments to be cropped
@@ -637,6 +820,13 @@ public:
     Polygon convexHull() const;
 
     /*!
+     * Compute the area enclosed within the polygons (minus holes)
+     * 
+     * \return The area in square micron
+     */
+    double area() const;
+
+    /*!
      * Smooth out small perpendicular segments
      * Smoothing is performed by removing the inner most vertex of a line segment smaller than \p remove_length
      * which has an angle with the next and previous line segment smaller than roughly 150*
@@ -647,7 +837,7 @@ public:
      * \param remove_length The length of the largest segment removed
      * \return The smoothed polygon
      */
-    Polygons smooth(int remove_length);
+    Polygons smooth(int remove_length) const;
 
     /*!
      * Smooth out sharp inner corners, by taking a shortcut which bypasses the corner
@@ -658,7 +848,7 @@ public:
      */
     Polygons smooth_outward(float angle, int shortcut_length);
 
-    Polygons smooth2(int remove_length, int min_area); //!< removes points connected to small lines
+    Polygons smooth2(int remove_length, int min_area) const; //!< removes points connected to small lines
     
     /*!
      * removes points connected to similarly oriented lines
@@ -715,6 +905,12 @@ private:
      */
     void removeEmptyHoles_processPolyTreeNode(const ClipperLib::PolyNode& node, const bool remove_holes, Polygons& ret) const;
     void splitIntoParts_processPolyTreeNode(ClipperLib::PolyNode* node, std::vector<PolygonsPart>& ret) const;
+
+    /*!
+     * Convert a node from a ClipperLib::PolyTree and add it to a Polygons object,
+     * which uses ClipperLib::Paths instead of ClipperLib::PolyTree
+     */
+    void addPolyTreeNodeRecursive(const ClipperLib::PolyNode& node);
 public:
     /*!
      * Split up the polygons into groups according to the even-odd rule.
@@ -798,16 +994,16 @@ public:
      * Removes the same polygons from this set (and also empty polygons).
      * Polygons are considered the same if all points lie within [same_distance] of their counterparts.
      */
-    Polygons remove(Polygons& to_be_removed, int same_distance = 0)
+    Polygons remove(const Polygons& to_be_removed, int same_distance = 0) const
     {
         Polygons result;
         for (unsigned int poly_keep_idx = 0; poly_keep_idx < size(); poly_keep_idx++)
         {
-            PolygonRef poly_keep = (*this)[poly_keep_idx];
+            ConstPolygonRef poly_keep = (*this)[poly_keep_idx];
             bool should_be_removed = false;
             if (poly_keep.size() > 0) 
 //             for (int hole_poly_idx = 0; hole_poly_idx < to_be_removed.size(); hole_poly_idx++)
-            for (PolygonRef poly_rem : to_be_removed)
+            for (ConstPolygonRef poly_rem : to_be_removed)
             {
 //                 PolygonRef poly_rem = to_be_removed[hole_poly_idx];
                 if (poly_rem.size() != poly_keep.size() || poly_rem.size() == 0) continue;
@@ -859,9 +1055,9 @@ public:
         return ret;
     }
 
-    int64_t polygonLength() const
+    coord_t polygonLength() const
     {
-        int64_t length = 0;
+        coord_t length = 0;
         for(unsigned int i=0; i<paths.size(); i++)
         {
             Point p0 = paths[i][paths[i].size()-1];
@@ -874,6 +1070,8 @@ public:
         }
         return length;
     }
+
+    coord_t polyLineLength() const;
     
     Point min() const
     {
@@ -923,13 +1121,16 @@ public:
 class PolygonsPart : public Polygons
 {   
 public:
-    PolygonRef outerPolygon() 
+    PolygonRef outerPolygon()
     {
-        Polygons& thiss = *this;
-        return thiss[0];
+        return this->paths[0];
+    }
+    ConstPolygonRef outerPolygon() const
+    {
+        return this->paths[0];
     }
     
-    bool inside(Point p)
+    bool inside(Point p) const
     {
         if (size() < 1)
             return false;
@@ -959,7 +1160,7 @@ public:
      * \param boundary_poly_idx Optional output parameter: The index of the boundary polygon of the part in \p polygons
      * \return The PolygonsPart containing the polygon with index \p poly_idx
      */
-    unsigned int getPartContaining(unsigned int poly_idx, unsigned int* boundary_poly_idx = nullptr);
+    unsigned int getPartContaining(unsigned int poly_idx, unsigned int* boundary_poly_idx = nullptr) const;
     /*!
      * Assemble the PolygonsPart of which the polygon with index \p poly_idx is part.
      * 
@@ -967,7 +1168,7 @@ public:
      * \param boundary_poly_idx Optional output parameter: The index of the boundary polygon of the part in \p polygons
      * \return The PolygonsPart containing the polygon with index \p poly_idx
      */
-    PolygonsPart assemblePartContaining(unsigned int poly_idx, unsigned int* boundary_poly_idx = nullptr);
+    PolygonsPart assemblePartContaining(unsigned int poly_idx, unsigned int* boundary_poly_idx = nullptr) const;
     /*!
      * Assemble the PolygonsPart of which the polygon with index \p poly_idx is part.
      * 
