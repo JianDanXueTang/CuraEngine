@@ -43,10 +43,16 @@ public:
         }
         return (*polygons)[poly_idx][point_idx];
     }
+
+    /*!
+     * \brief Returns whether this point is initialised.
+     */
+    bool initialized() const;
+
     /*!
      * Get the polygon to which this PolygonsPointIndex refers
      */
-    const PolygonRef getPolygon() const
+    ConstPolygonRef getPolygon() const
     {
         return (*polygons)[poly_idx];
     }

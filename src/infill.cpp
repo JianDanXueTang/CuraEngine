@@ -17,7 +17,7 @@ int Infill::computeScanSegmentIdx(int x, int line_width)
     return x / line_width;
 }
 
-void Infill::generate(Polygons& result_polygons, Polygons& result_lines, SliceMeshStorage* mesh)
+void Infill::generate(Polygons& result_polygons, Polygons& result_lines, const SliceMeshStorage* mesh)
 {
     if (in_outline.size() == 0) return;
     if (line_distance == 0) return;
@@ -144,7 +144,7 @@ void Infill::generateTriangleInfill(Polygons& result)
     generateLineInfill(result, line_distance, fill_angle + 120, 0);
 }
 
-void Infill::generateCubicSubDivInfill(Polygons& result, SliceMeshStorage& mesh)
+void Infill::generateCubicSubDivInfill(Polygons& result, const SliceMeshStorage& mesh)
 {
     Polygons uncropped;
     mesh.base_subdiv_cube->generateSubdivisionLines(z, uncropped);
@@ -178,9 +178,13 @@ void Infill::addLineInfill(Polygons& result, const PointMatrix& rotation_matrix,
         return 0;
     };
 
-    int scanline_idx = 0;
+    unsigned int scanline_idx = 0;
     for(int64_t x = scanline_min_idx * line_distance + shift; x < boundary.max.X; x += line_distance)
     {
+        if (scanline_idx >= cut_list.size())
+        {
+            break;
+        }
         std::vector<int64_t>& crossings = cut_list[scanline_idx];
         qsort(crossings.data(), crossings.size(), sizeof(int64_t), compare_int64_t);
         for(unsigned int crossing_idx = 0; crossing_idx + 1 < crossings.size(); crossing_idx += 2)

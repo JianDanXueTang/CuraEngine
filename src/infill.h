@@ -1,10 +1,12 @@
-/** Copyright (C) 2013 David Braam - Released under terms of the AGPLv3 License */
+//Copyright (c) 2013 David Braam
+//Copyright (c) 2017 Ultimaker B.V.
+//CuraEngine is released under the terms of the AGPLv3 or higher.
+
 #ifndef INFILL_H
 #define INFILL_H
 
 #include "utils/polygon.h"
 #include "settings/settings.h"
-// #include "ZigzagConnectorProcessor.h"
 #include "infill/ZigzagConnectorProcessor.h"
 #include "infill/NoZigZagConnectorProcessor.h"
 #include "infill/ActualZigzagConnectorProcessor.h"
@@ -78,9 +80,9 @@ public:
      * 
      * \param result_polygons (output) The resulting polygons (from concentric infill)
      * \param result_lines (output) The resulting line segments (from linear infill types)
-     * \param mesh The mesh for which to geenrate infill (should only be used for non-helper objects)
+     * \param mesh The mesh for which to generate infill (should only be used for non-helper objects)
      */
-    void generate(Polygons& result_polygons, Polygons& result_lines, SliceMeshStorage* mesh = nullptr);
+    void generate(Polygons& result_polygons, Polygons& result_lines, const SliceMeshStorage* mesh = nullptr);
 
 private:
     /*!
@@ -148,8 +150,8 @@ private:
      * \param[out] result The resulting lines
      * \param[in] mesh Where the Cubic Subdivision Infill precomputation is stored
      */
-    void generateCubicSubDivInfill(Polygons& result, SliceMeshStorage& mesh);
-    
+    void generateCubicSubDivInfill(Polygons& result, const SliceMeshStorage& mesh);
+
     /*!
      * Convert a mapping from scanline to line_segment-scanline-intersections (\p cut_list) into line segments, using the even-odd rule
      * \param result (output) The resulting lines
